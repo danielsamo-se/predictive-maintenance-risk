@@ -1,0 +1,7 @@
+horizon_n: 30
+window_l: 50
+feature_set_version: "v1"
+random_seed: 42
+data_raw_dir: "data/raw"
+data_processed_dir: "data/processed"
+models_production_dir: "models/production"
