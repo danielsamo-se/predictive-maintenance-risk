@@ -3,6 +3,12 @@ from pathlib import Path
 import pandas as pd
 
 from pmrisk.config import settings
+from pmrisk.quality.checks import (
+    assert_expected_columns,
+    assert_monotonic_cycle_per_engine,
+    assert_no_duplicates,
+    assert_sorted_by_engine_cycle,
+)
 
 
 def main():
@@ -25,15 +31,19 @@ def main():
         dtype_dict[col] = "float64"
     
     df = pd.read_csv(
-        input_path,
-        sep=" ",
-        header=None,
-        names=columns,
-        dtype=dtype_dict,
-        engine="pyarrow",
+    input_path,
+    sep=r"\s+",
+    header=None,
+    names=columns,
+    dtype=dtype_dict,
     )
     
     df = df.sort_values(["engine_id", "cycle"]).reset_index(drop=True)
+    
+    assert_expected_columns(df, columns)
+    assert_no_duplicates(df, keys=["engine_id", "cycle"])
+    assert_monotonic_cycle_per_engine(df)
+    assert_sorted_by_engine_cycle(df)
     
     df.to_parquet(output_path, index=False)
 
