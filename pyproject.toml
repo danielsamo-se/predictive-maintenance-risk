@@ -21,6 +21,7 @@ dependencies = [
 serving = ["fastapi", "uvicorn"]
 dl = ["torch"]
 data = ["pyarrow"]
+viz = ["matplotlib"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
