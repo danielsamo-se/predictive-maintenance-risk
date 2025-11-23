@@ -1,0 +1,6 @@
+featureset_version: "v1"
+windows: [10, 20, 50]
+stats: [mean, std]
+lags: [1, 5]
+deltas: [1]
+include_slopes: false
