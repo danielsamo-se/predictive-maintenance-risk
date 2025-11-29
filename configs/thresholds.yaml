@@ -1,0 +1,5 @@
+# bucket_cutoffs: [low_to_med, med_to_high]
+
+target_recall: 0.85
+min_precision: 0.30
+bucket_cutoffs: [0.20, 0.50]
