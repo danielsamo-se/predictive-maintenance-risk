@@ -1,3 +1,4 @@
+"""Validate tabular features: sorted/no dups/no NaNs after window_l"""
 import pandas as pd
 import numpy as np
 

@@ -1,4 +1,4 @@
-"""Project config loaded from configs/base.yaml."""
+"""Project config loaded from configs"""
 
 from __future__ import annotations
 

@@ -1,3 +1,4 @@
+"""Label FD001 cycles with risk classes for the prediction horizon; optionally save the labeled dataset as parquet"""
 from pathlib import Path
 
 import pandas as pd
@@ -6,6 +7,7 @@ from pmrisk.config import settings
 
 
 def build_labeled_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Add failure_cycle/remaining/label (label=1 iff 0 < remaining <= horizon_n) and drop cycles < window_l"""
     if "engine_id" not in df.columns or "cycle" not in df.columns:
         raise ValueError("Missing required columns: engine_id or cycle")
     

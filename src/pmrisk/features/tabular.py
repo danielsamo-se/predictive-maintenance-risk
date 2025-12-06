@@ -1,3 +1,4 @@
+""" Tabular feature builder (rolling stats, lags, deltas) grouped by engine_id and cycle"""
 import pandas as pd
 
 
@@ -9,6 +10,7 @@ def build_tabular_features(
     id_col: str = "engine_id",
     time_col: str = "cycle",
 ) -> pd.DataFrame:
+    """Build past-only features per engine_id/cycle and filter to min_cycle for NaN-free training rows"""
     df = df.copy()
     df = df.sort_values([id_col, time_col]).reset_index(drop=True)
 
@@ -27,6 +29,7 @@ def build_tabular_features(
 
     feature_dfs = []
 
+    # strict prefixes to prevent accidental leakage from helper columns 
     for sig_col in signal_cols:
         for window in spec.get("windows", []):
             for stat in spec.get("stats", []):
@@ -53,6 +56,7 @@ def build_tabular_features(
 
     result = pd.concat([df[[id_col, time_col]]] + feature_dfs, axis=1)
 
+    # Ensure filtered rows are NaN-free
     min_cycle = max(
     window_l,
     max(spec.get("windows", [1])),

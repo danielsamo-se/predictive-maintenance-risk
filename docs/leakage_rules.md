@@ -1,4 +1,4 @@
-# Leakage Rules (Minimal)
+Leakage Rules (Minimal)
 
 - Past-only: inputs/features at time t use data <= t only.
 - Scaling/normalization: fit on TRAIN only; apply to val/test/serving.

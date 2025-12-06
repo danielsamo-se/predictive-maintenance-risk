@@ -1,3 +1,4 @@
+"""Basic data quality checks: column presence, uniqueness, monotonicity, sorting"""
 import pandas as pd
 
 
