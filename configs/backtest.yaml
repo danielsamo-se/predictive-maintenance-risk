@@ -1,0 +1,8 @@
+n_folds: 3
+test_engines_per_fold: 10
+train_min_engines: 40
+val_ratio_within_train: 0.2
+model_candidates: ["logreg", "lightgbm"]
+calibration_bins: 10
+calibration_strategy: "quantile"
+early_alarm_slack: 10
