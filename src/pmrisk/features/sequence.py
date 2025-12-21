@@ -63,10 +63,13 @@ def apply_standard_scaler(df: pd.DataFrame, scaler_params: dict[str, Any]) -> pd
         raise ValueError(f"Missing feature columns in df: {missing}")
 
     df_out = df.copy()
-    x = df_out[feature_columns].to_numpy(dtype=float)
+
+    df_out[feature_columns] = df_out[feature_columns].astype("float64")
+
+    x = df_out[feature_columns].to_numpy(dtype="float64", copy=False)
     x_scaled = (x - mean) / std
 
-    df_out.loc[:, feature_columns] = x_scaled
+    df_out[feature_columns] = x_scaled
     return df_out
 
 
