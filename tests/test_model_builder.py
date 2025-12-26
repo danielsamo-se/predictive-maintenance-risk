@@ -1,8 +1,7 @@
 import pytest
 
-from pmrisk.models.model_factory import build_sequence_model
+from pmrisk.models.model_builder import build_sequence_model
 from pmrisk.models.sequence_cnn import SequenceCNN
-
 
 def test_build_sequence_model_cnn_ok() -> None:
     hparams = {"model_type": "cnn", "n_features": 14, "window_l": 50}
