@@ -6,7 +6,12 @@ from torch.utils.data import DataLoader
 from pmrisk.models.model_builder import build_sequence_model
 from pmrisk.models.sequence_data import build_sequence_pipeline
 from pmrisk.models.torch_dataset import SequenceWindowDataset
-from pmrisk.models.train_sequence import eval_loss, filter_index_by_engine_ids, train_one_epoch
+from pmrisk.models.train_sequence import (
+    eval_loss,
+    eval_metrics,
+    filter_index_by_engine_ids,
+    train_one_epoch,
+)
 
 
 def test_train_sequence_smoke() -> None:
@@ -75,4 +80,11 @@ def test_train_sequence_smoke() -> None:
     assert isinstance(val_loss, float)
     assert train_loss >= 0.0
     assert val_loss >= 0.0
+
+    metrics = eval_metrics(model, val_loader, device)
+
+    assert isinstance(metrics["loss"], float)
+    assert metrics["loss"] >= 0.0
+    assert isinstance(metrics["pr_auc"], float)
+    assert 0.0 <= metrics["pr_auc"] <= 1.0
 
