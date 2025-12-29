@@ -106,3 +106,66 @@ def eval_metrics(
         "loss": loss,
         "pr_auc": pr_auc,
     }
+
+
+def train_sequence_model(
+    model: nn.Module,
+    train_loader,
+    val_loader,
+    device: torch.device,
+    *,
+    n_epochs: int = 20,
+    patience: int = 5,
+    lr: float = 1e-3,
+) -> dict:
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    
+    history = []
+    best_pr_auc = float("-inf")
+    best_loss = float("inf")
+    best_state_dict = {}
+    best_metrics = {}
+    epochs_without_improvement = 0
+    
+    for epoch in range(n_epochs):
+        train_loss = train_one_epoch(model, train_loader, optimizer, device)
+        val_metrics = eval_metrics(model, val_loader, device)
+        
+        val_loss = val_metrics["loss"]
+        val_pr_auc = val_metrics["pr_auc"]
+        
+        history.append({
+            "epoch": epoch,
+            "train_loss": train_loss,
+            "val_loss": val_loss,
+            "val_pr_auc": val_pr_auc,
+        })
+        
+        is_better = False
+        if val_pr_auc > best_pr_auc:
+            is_better = True
+        elif val_pr_auc == best_pr_auc and val_loss < best_loss:
+            is_better = True
+        
+        if is_better:
+            best_pr_auc = val_pr_auc
+            best_loss = val_loss
+            best_state_dict = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+            best_metrics = {
+                "val_loss": val_loss,
+                "val_pr_auc": val_pr_auc,
+            }
+            epochs_without_improvement = 0
+        else:
+            epochs_without_improvement += 1
+        
+        # Early stopping
+        if epochs_without_improvement >= patience:
+            break
+    
+    return {
+        "best_state_dict": best_state_dict,
+        "best_metrics": best_metrics,
+        "history": history,
+    }
