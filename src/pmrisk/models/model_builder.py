@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pmrisk.models.sequence_cnn import SequenceCNN
+from pmrisk.models.sequence_gru import SequenceGRU
 
 
 def build_sequence_model(hparams: dict):
@@ -16,15 +17,23 @@ def build_sequence_model(hparams: dict):
     window_l = hparams["window_l"]
 
     if model_type == "cnn":
-        cnn_kwargs = {"n_features": n_features, "window_l": window_l}
-
+        kwargs = {"n_features": n_features, "window_l": window_l}
         if "hidden_channels" in hparams:
-            cnn_kwargs["hidden_channels"] = hparams["hidden_channels"]
+            kwargs["hidden_channels"] = hparams["hidden_channels"]
         if "kernel_size" in hparams:
-            cnn_kwargs["kernel_size"] = hparams["kernel_size"]
+            kwargs["kernel_size"] = hparams["kernel_size"]
         if "dropout_p" in hparams:
-            cnn_kwargs["dropout_p"] = hparams["dropout_p"]
+            kwargs["dropout_p"] = hparams["dropout_p"]
+        return SequenceCNN(**kwargs)
 
-        return SequenceCNN(**cnn_kwargs)
+    elif model_type == "gru":
+        kwargs = {"n_features": n_features, "window_l": window_l}
+        if "hidden_size" in hparams:
+            kwargs["hidden_size"] = hparams["hidden_size"]
+        if "num_layers" in hparams:
+            kwargs["num_layers"] = hparams["num_layers"]
+        if "dropout_p" in hparams:
+            kwargs["dropout_p"] = hparams["dropout_p"]
+        return SequenceGRU(**kwargs)
 
     raise ValueError(f"Unknown model_type: {model_type}")

@@ -2,6 +2,8 @@ import pytest
 
 from pmrisk.models.model_builder import build_sequence_model
 from pmrisk.models.sequence_cnn import SequenceCNN
+from pmrisk.models.sequence_gru import SequenceGRU
+
 
 def test_build_sequence_model_cnn_ok() -> None:
     hparams = {"model_type": "cnn", "n_features": 14, "window_l": 50}
@@ -48,3 +50,30 @@ def test_build_sequence_model_missing_required_key_raises() -> None:
         build_sequence_model({"n_features": 14, "window_l": 50})
 
 
+def test_build_sequence_model_gru_ok() -> None:
+    hparams = {"model_type": "gru", "n_features": 14, "window_l": 50}
+
+    model = build_sequence_model(hparams)
+
+    assert isinstance(model, SequenceGRU)
+    assert model.n_features == 14
+    assert model.window_l == 50
+
+
+def test_build_sequence_model_gru_with_optional_params() -> None:
+    hparams = {
+        "model_type": "gru",
+        "n_features": 14,
+        "window_l": 50,
+        "hidden_size": 64,
+        "num_layers": 2,
+        "dropout_p": 0.1,
+    }
+
+    model = build_sequence_model(hparams)
+
+    assert isinstance(model, SequenceGRU)
+    assert model.n_features == 14
+    assert model.window_l == 50
+    assert model.hidden_size == 64
+    assert model.num_layers == 2
