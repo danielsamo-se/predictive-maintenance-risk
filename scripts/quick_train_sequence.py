@@ -29,7 +29,12 @@ def main() -> None:
     )
     parser.add_argument("--model-name", default="seq", help="Model name")
     parser.add_argument("--version", default="v0-smoke", help="Model version")
-    parser.add_argument("--model-type", default="cnn", help="Model type")
+    parser.add_argument(
+        "--model-type",
+        default="cnn",
+        choices=["cnn", "gru"],
+        help="Model type: cnn or gru",
+    )
     parser.add_argument("--window-l", type=int, default=50, help="Window length")
     parser.add_argument("--max-train-engines", type=int, default=50, help="Max train engines")
     parser.add_argument("--max-val-engines", type=int, default=10, help="Max val engines")
@@ -102,14 +107,31 @@ def main() -> None:
         "model_type": args.model_type,
         "n_features": len(feature_columns),
         "window_l": args.window_l,
-        "hidden_channels": 8,
-        "kernel_size": 3,
-        "dropout_p": 0.0,
     }
     
-    print(f"Building model: {args.model_type}")
+    if args.model_type == "cnn":
+        hparams.update({
+            "hidden_channels": 8,
+            "kernel_size": 3,
+            "dropout_p": 0.0,
+        })
+    elif args.model_type == "gru":
+        hparams.update({
+            "hidden_size": 32,
+            "num_layers": 1,
+            "dropout_p": 0.0,
+        })
+    
+    print(f"\nBuilding model: {args.model_type.upper()}")
     print(f"  n_features: {hparams['n_features']}")
     print(f"  window_l: {hparams['window_l']}")
+    if args.model_type == "cnn":
+        print(f"  hidden_channels: {hparams['hidden_channels']}")
+        print(f"  kernel_size: {hparams['kernel_size']}")
+    elif args.model_type == "gru":
+        print(f"  hidden_size: {hparams['hidden_size']}")
+        print(f"  num_layers: {hparams['num_layers']}")
+    print(f"  dropout_p: {hparams['dropout_p']}")
     
     model = build_sequence_model(hparams)
     
