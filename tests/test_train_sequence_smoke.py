@@ -10,6 +10,7 @@ from pmrisk.models.train_sequence import (
     eval_loss,
     eval_metrics,
     filter_index_by_engine_ids,
+    select_threshold_for_target_recall,
     train_one_epoch,
     train_sequence_model,
 )
@@ -89,6 +90,15 @@ def test_train_sequence_smoke() -> None:
     assert isinstance(metrics["pr_auc"], float)
     assert 0.0 <= metrics["pr_auc"] <= 1.0
 
+    metrics_with_threshold = eval_metrics(model, val_loader, device, threshold=0.5)
+
+    assert "precision" in metrics_with_threshold
+    assert "recall" in metrics_with_threshold
+    assert "f1" in metrics_with_threshold
+    assert 0.0 <= metrics_with_threshold["precision"] <= 1.0
+    assert 0.0 <= metrics_with_threshold["recall"] <= 1.0
+    assert 0.0 <= metrics_with_threshold["f1"] <= 1.0
+
 
 def test_train_sequence_model_with_early_stopping() -> None:
     np.random.seed(42)
@@ -164,4 +174,14 @@ def test_train_sequence_model_with_early_stopping() -> None:
     assert "val_pr_auc" in best_metrics
     assert isinstance(best_metrics["val_pr_auc"], float)
     assert 0.0 <= best_metrics["val_pr_auc"] <= 1.0
+
+
+def test_select_threshold_for_target_recall() -> None:
+    y_true = torch.tensor([0, 0, 1, 1], dtype=torch.float32)
+    scores = torch.tensor([0.1, 0.4, 0.6, 0.9], dtype=torch.float32)
+
+    threshold = select_threshold_for_target_recall(y_true, scores, target_recall=1.0)
+
+    assert threshold <= 0.6000001
+    assert isinstance(threshold, float)
 

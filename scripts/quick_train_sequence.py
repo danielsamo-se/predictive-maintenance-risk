@@ -16,6 +16,9 @@ from pmrisk.models.sequence_data import build_sequence_pipeline
 from pmrisk.models.torch_dataset import SequenceWindowDataset
 from pmrisk.models.train_sequence import (
     filter_index_by_engine_ids,
+    predict_logits,
+    select_threshold_for_target_recall,
+    compute_binary_metrics_at_threshold,
     train_sequence_model,
 )
 
@@ -42,6 +45,9 @@ def main() -> None:
     parser.add_argument("--n-epochs", type=int, default=3, help="Number of epochs")
     parser.add_argument("--patience", type=int, default=1, help="Early stopping patience")
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
+    parser.add_argument(
+        "--target-recall", type=float, default=0.85, help="Target recall for threshold selection"
+    )
     
     args = parser.parse_args()
     
@@ -160,9 +166,25 @@ def main() -> None:
     model.load_state_dict(best_state_dict)
     model.eval()
     
+    print(f"\nSelecting threshold for target_recall={args.target_recall}...")
+    logits, y_true = predict_logits(model, val_loader, device)
+    y_true_1d = y_true.view(-1).cpu()
+    scores = torch.sigmoid(logits.view(-1).cpu())
+    
+    threshold = select_threshold_for_target_recall(y_true_1d, scores, args.target_recall)
+    val_metrics_at_threshold = compute_binary_metrics_at_threshold(y_true_1d, scores, threshold)
+    
+    print(f"Selected threshold: {threshold:.4f}")
+    print(f"Val precision @ threshold: {val_metrics_at_threshold['precision']:.4f}")
+    print(f"Val recall @ threshold: {val_metrics_at_threshold['recall']:.4f}")
+    print(f"Val f1 @ threshold: {val_metrics_at_threshold['f1']:.4f}")
+    
     metadata = {
         "hparams": hparams,
         "best_metrics": best_metrics,
+        "threshold": threshold,
+        "target_recall": args.target_recall,
+        "val_metrics_at_threshold": val_metrics_at_threshold,
         "train_engines_count": len(train_engine_ids),
         "val_engines_count": len(val_engine_ids),
         "train_windows_count": len(train_index),
@@ -184,8 +206,14 @@ def main() -> None:
     print(f"Model saved: {version_dir}")
     print(f"Active version set: {args.version}")
     print("\n=== Best Metrics ===")
-    for k, v in best_metrics.items():
-        print(f"  {k}: {v:.4f}")
+    print(f"  val_pr_auc: {best_metrics['val_pr_auc']:.4f}")
+    print(f"  val_loss: {best_metrics['val_loss']:.4f}")
+    print(f"\n=== Threshold Policy ===")
+    print(f"  threshold: {threshold:.4f}")
+    print(f"  target_recall: {args.target_recall:.4f}")
+    print(f"  precision: {val_metrics_at_threshold['precision']:.4f}")
+    print(f"  recall: {val_metrics_at_threshold['recall']:.4f}")
+    print(f"  f1: {val_metrics_at_threshold['f1']:.4f}")
 
 
 if __name__ == "__main__":
