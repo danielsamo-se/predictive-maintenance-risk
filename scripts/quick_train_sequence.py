@@ -26,6 +26,20 @@ from pmrisk.models.train_sequence import (
 from pmrisk.split.splitter import split_engine_ids
 
 
+def _make_json_serializable(obj):
+    """Convert numpy types to JSON-serializable Python types."""
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, (np.integer, np.floating)):
+        return float(obj)
+    elif isinstance(obj, dict):
+        return {k: _make_json_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_make_json_serializable(item) for item in obj]
+    else:
+        return obj
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train sequence model on FD001")
     parser.add_argument(
@@ -181,6 +195,29 @@ def main() -> None:
         f"p/r/f1={test_metrics['precision']:.4f}/{test_metrics['recall']:.4f}/{test_metrics['f1']:.4f}"
     )
 
+    if "scaler_params" not in pipeline:
+        raise ValueError("Missing scaler_params in pipeline")
+    
+    sp = pipeline["scaler_params"]
+    required_keys = ["feature_columns", "mean", "std"]
+    for key in required_keys:
+        if key not in sp:
+            raise ValueError(f"Missing key '{key}' in scaler_params")
+    
+    if len(sp["feature_columns"]) != len(sp["mean"]) or len(sp["feature_columns"]) != len(sp["std"]):
+        raise ValueError(
+            f"Scaler params length mismatch: "
+            f"feature_columns={len(sp['feature_columns'])}, mean={len(sp['mean'])}, std={len(sp['std'])}"
+        )
+    
+    if len(sp["feature_columns"]) != hparams["n_features"]:
+        raise ValueError(
+            f"Feature count mismatch: scaler has {len(sp['feature_columns'])}, "
+            f"hparams has {hparams['n_features']}"
+        )
+
+    scaler_params_json = _make_json_serializable(sp)
+
     metadata = {
         "hparams": hparams,
         "best_metrics": best_metrics,
@@ -188,6 +225,8 @@ def main() -> None:
         "target_recall": float(args.target_recall),
         "val_metrics_at_threshold": val_at_thr,
         "test_metrics": test_metrics,
+        "scaler_params": scaler_params_json,
+        "feature_columns": feature_columns,
         "train_engines_count": len(train_engine_ids),
         "val_engines_count": len(val_engine_ids),
         "test_engines_count": len(test_engine_ids),
