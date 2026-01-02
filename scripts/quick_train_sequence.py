@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
+import yaml
 from torch.utils.data import DataLoader
 
 from pmrisk.models.model_builder import build_sequence_model
@@ -15,12 +16,14 @@ from pmrisk.models.model_versions import save_sequence_model_production
 from pmrisk.models.sequence_data import build_sequence_pipeline
 from pmrisk.models.torch_dataset import SequenceWindowDataset
 from pmrisk.models.train_sequence import (
+    compute_binary_metrics_at_threshold,
+    eval_metrics,
     filter_index_by_engine_ids,
     predict_logits,
     select_threshold_for_target_recall,
-    compute_binary_metrics_at_threshold,
     train_sequence_model,
 )
+from pmrisk.split.splitter import split_engine_ids
 
 
 def main() -> None:
@@ -36,115 +39,112 @@ def main() -> None:
         "--model-type",
         default="cnn",
         choices=["cnn", "gru"],
-        help="Model type: cnn or gru",
+        help="Model type",
     )
     parser.add_argument("--window-l", type=int, default=50, help="Window length")
-    parser.add_argument("--max-train-engines", type=int, default=50, help="Max train engines")
-    parser.add_argument("--max-val-engines", type=int, default=10, help="Max val engines")
+
+    parser.add_argument("--max-train-engines", type=int, default=None, help="Cap train engines")
+    parser.add_argument("--max-val-engines", type=int, default=None, help="Cap val engines")
+    parser.add_argument("--max-test-engines", type=int, default=None, help="Cap test engines")
+
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size")
-    parser.add_argument("--n-epochs", type=int, default=3, help="Number of epochs")
+    parser.add_argument("--n-epochs", type=int, default=3, help="Epochs")
     parser.add_argument("--patience", type=int, default=1, help="Early stopping patience")
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
-    parser.add_argument(
-        "--target-recall", type=float, default=0.85, help="Target recall for threshold selection"
-    )
-    
+    parser.add_argument("--target-recall", type=float, default=0.85, help="Target recall on val")
+
     args = parser.parse_args()
-    
+
     np.random.seed(42)
     torch.manual_seed(42)
-    
+
     data_path = Path(args.data)
     if not data_path.exists():
-        raise FileNotFoundError(f"Data file not found: {data_path}")
-    
-    print(f"Loading data from {data_path}...")
+        raise FileNotFoundError(f"Missing data file: {data_path}")
+
+    split_config_path = Path("configs/split.yaml")
+    if not split_config_path.exists():
+        raise FileNotFoundError(f"Missing split config: {split_config_path}")
+
     df = pd.read_parquet(data_path)
-    
-    required_cols = ["engine_id", "cycle", "label"]
-    for col in required_cols:
+
+    for col in ("engine_id", "cycle", "label"):
         if col not in df.columns:
             raise ValueError(f"Missing required column: {col}")
-    
+
+    with open(split_config_path, "r", encoding="utf-8") as f:
+        split_cfg = yaml.safe_load(f)
+
     all_engine_ids = sorted(df["engine_id"].unique())
-    train_engine_ids = all_engine_ids[: args.max_train_engines]
-    val_engine_ids = all_engine_ids[
-        args.max_train_engines : args.max_train_engines + args.max_val_engines
-    ]
-    
-    if len(train_engine_ids) == 0:
-        raise ValueError("No train engines available")
-    if len(val_engine_ids) == 0:
-        raise ValueError("No val engines available")
-    
-    print(f"Train engines: {len(train_engine_ids)}")
-    print(f"Val engines: {len(val_engine_ids)}")
-    
-    print(f"Building sequence pipeline (window_l={args.window_l})")
+    splits = split_engine_ids(
+        all_engine_ids,
+        train_ratio=split_cfg["train_ratio"],
+        val_ratio=split_cfg["val_ratio"],
+        test_ratio=split_cfg["test_ratio"],
+        seed=split_cfg["seed"],
+    )
+
+    train_engine_ids = splits["train"]
+    val_engine_ids = splits["val"]
+    test_engine_ids = splits["test"]
+
+    if args.max_train_engines is not None:
+        train_engine_ids = train_engine_ids[: args.max_train_engines]
+    if args.max_val_engines is not None:
+        val_engine_ids = val_engine_ids[: args.max_val_engines]
+    if args.max_test_engines is not None:
+        test_engine_ids = test_engine_ids[: args.max_test_engines]
+
+    if not train_engine_ids:
+        raise ValueError("Empty train split")
+    if not val_engine_ids:
+        raise ValueError("Empty val split")
+    if not test_engine_ids:
+        raise ValueError("Empty test split")
+
     pipeline = build_sequence_pipeline(
         df,
         train_engine_ids=train_engine_ids,
         window_length=args.window_l,
         label_col="label",
     )
-    
+
     feature_columns = pipeline["feature_columns"]
     engine_arrays = pipeline["engine_arrays"]
     index = pipeline["index"]
-    
-    print(f"Feature columns: {len(feature_columns)}")
-    print(f"Total windows: {len(index)}")
-    
+
     train_index = filter_index_by_engine_ids(index, engine_ids=set(train_engine_ids))
     val_index = filter_index_by_engine_ids(index, engine_ids=set(val_engine_ids))
-    
-    print(f"Train windows: {len(train_index)}")
-    print(f"Val windows: {len(val_index)}")
-    
+    test_index = filter_index_by_engine_ids(index, engine_ids=set(test_engine_ids))
+
     train_dataset = SequenceWindowDataset(engine_arrays, train_index, args.window_l)
     val_dataset = SequenceWindowDataset(engine_arrays, val_index, args.window_l)
-    
-    train_loader = DataLoader(
-        train_dataset, batch_size=args.batch_size, shuffle=False
-    )
+    test_dataset = SequenceWindowDataset(engine_arrays, test_index, args.window_l)
+
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
-    
+    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
+
     hparams = {
         "model_type": args.model_type,
         "n_features": len(feature_columns),
         "window_l": args.window_l,
     }
-    
     if args.model_type == "cnn":
-        hparams.update({
-            "hidden_channels": 8,
-            "kernel_size": 3,
-            "dropout_p": 0.0,
-        })
-    elif args.model_type == "gru":
-        hparams.update({
-            "hidden_size": 32,
-            "num_layers": 1,
-            "dropout_p": 0.0,
-        })
-    
-    print(f"\nBuilding model: {args.model_type.upper()}")
-    print(f"  n_features: {hparams['n_features']}")
-    print(f"  window_l: {hparams['window_l']}")
-    if args.model_type == "cnn":
-        print(f"  hidden_channels: {hparams['hidden_channels']}")
-        print(f"  kernel_size: {hparams['kernel_size']}")
-    elif args.model_type == "gru":
-        print(f"  hidden_size: {hparams['hidden_size']}")
-        print(f"  num_layers: {hparams['num_layers']}")
-    print(f"  dropout_p: {hparams['dropout_p']}")
-    
+        hparams.update({"hidden_channels": 8, "kernel_size": 3, "dropout_p": 0.0})
+    else:
+        hparams.update({"hidden_size": 32, "num_layers": 1, "dropout_p": 0.0})
+
+    print(
+        f"data={data_path} model={args.model_type} L={args.window_l} F={len(feature_columns)} "
+        f"engines(train/val/test)={len(train_engine_ids)}/{len(val_engine_ids)}/{len(test_engine_ids)} "
+        f"windows(train/val/test)={len(train_index)}/{len(val_index)}/{len(test_index)}"
+    )
+
     model = build_sequence_model(hparams)
-    
     device = torch.device("cpu")
     model.to(device)
-    
-    print(f"\nTraining for {args.n_epochs} epochs (patience={args.patience})...")
+
     result = train_sequence_model(
         model,
         train_loader,
@@ -154,46 +154,56 @@ def main() -> None:
         patience=args.patience,
         lr=args.lr,
     )
-    
+
     best_state_dict = result["best_state_dict"]
     best_metrics = result["best_metrics"]
     history = result["history"]
-    
-    print(f"\nTraining completed after {len(history)} epochs")
-    print(f"Best val_pr_auc: {best_metrics['val_pr_auc']:.4f}")
-    print(f"Best val_loss: {best_metrics['val_loss']:.4f}")
-    
+
     model.load_state_dict(best_state_dict)
     model.eval()
-    
-    print(f"\nSelecting threshold for target_recall={args.target_recall}...")
-    logits, y_true = predict_logits(model, val_loader, device)
-    y_true_1d = y_true.view(-1).cpu()
-    scores = torch.sigmoid(logits.view(-1).cpu())
-    
-    threshold = select_threshold_for_target_recall(y_true_1d, scores, args.target_recall)
-    val_metrics_at_threshold = compute_binary_metrics_at_threshold(y_true_1d, scores, threshold)
-    
-    print(f"Selected threshold: {threshold:.4f}")
-    print(f"Val precision @ threshold: {val_metrics_at_threshold['precision']:.4f}")
-    print(f"Val recall @ threshold: {val_metrics_at_threshold['recall']:.4f}")
-    print(f"Val f1 @ threshold: {val_metrics_at_threshold['f1']:.4f}")
-    
+
+    logits_val, y_true_val = predict_logits(model, val_loader, device)
+    y_val = y_true_val.view(-1).cpu()
+    s_val = torch.sigmoid(logits_val.view(-1).cpu())
+
+    threshold = select_threshold_for_target_recall(y_val, s_val, args.target_recall)
+    val_at_thr = compute_binary_metrics_at_threshold(y_val, s_val, threshold)
+
+    test_metrics = eval_metrics(model, test_loader, device, threshold=threshold)
+
+    print(
+        f"val: pr_auc={best_metrics['val_pr_auc']:.4f} loss={best_metrics['val_loss']:.4f} "
+        f"thr(recall>={args.target_recall:.2f})={threshold:.4f} "
+        f"p/r/f1={val_at_thr['precision']:.4f}/{val_at_thr['recall']:.4f}/{val_at_thr['f1']:.4f}"
+    )
+    print(
+        f"test: pr_auc={test_metrics['pr_auc']:.4f} loss={test_metrics['loss']:.4f} "
+        f"p/r/f1={test_metrics['precision']:.4f}/{test_metrics['recall']:.4f}/{test_metrics['f1']:.4f}"
+    )
+
     metadata = {
         "hparams": hparams,
         "best_metrics": best_metrics,
-        "threshold": threshold,
-        "target_recall": args.target_recall,
-        "val_metrics_at_threshold": val_metrics_at_threshold,
+        "threshold": float(threshold),
+        "target_recall": float(args.target_recall),
+        "val_metrics_at_threshold": val_at_thr,
+        "test_metrics": test_metrics,
         "train_engines_count": len(train_engine_ids),
         "val_engines_count": len(val_engine_ids),
+        "test_engines_count": len(test_engine_ids),
         "train_windows_count": len(train_index),
         "val_windows_count": len(val_index),
+        "test_windows_count": len(test_index),
+        "split_config": {
+            "train_ratio": split_cfg["train_ratio"],
+            "val_ratio": split_cfg["val_ratio"],
+            "test_ratio": split_cfg["test_ratio"],
+            "seed": split_cfg["seed"],
+        },
+        "history": history,
     }
-    
+
     root = Path("models") / "production"
-    print(f"\nSaving model to {root / args.model_name / args.version}...")
-    
     version_dir = save_sequence_model_production(
         model_name=args.model_name,
         version=args.version,
@@ -202,18 +212,8 @@ def main() -> None:
         root=root,
         set_active=True,
     )
-    
-    print(f"Model saved: {version_dir}")
-    print(f"Active version set: {args.version}")
-    print("\n=== Best Metrics ===")
-    print(f"  val_pr_auc: {best_metrics['val_pr_auc']:.4f}")
-    print(f"  val_loss: {best_metrics['val_loss']:.4f}")
-    print(f"\n=== Threshold Policy ===")
-    print(f"  threshold: {threshold:.4f}")
-    print(f"  target_recall: {args.target_recall:.4f}")
-    print(f"  precision: {val_metrics_at_threshold['precision']:.4f}")
-    print(f"  recall: {val_metrics_at_threshold['recall']:.4f}")
-    print(f"  f1: {val_metrics_at_threshold['f1']:.4f}")
+
+    print(f"saved: {version_dir} (active={args.version})")
 
 
 if __name__ == "__main__":
