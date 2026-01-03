@@ -16,3 +16,7 @@ class PredictRequest(BaseModel):
 
 class PredictResponse(BaseModel):
     risk_score: float = Field(ge=0.0, le=1.0)
+    threshold: float
+    is_alert: bool
+    model_version: str
+    model_type: str
