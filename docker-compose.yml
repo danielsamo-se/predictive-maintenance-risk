@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - PMRISK_MODELS_ROOT=/app/models/production
+    volumes:
+      - ./models/production:/app/models/production:ro
+    restart: unless-stopped
