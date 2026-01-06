@@ -28,20 +28,21 @@ app = FastAPI(title="PM Risk Predictor", lifespan=lifespan)
 
 @app.get("/health")
 def health():
-    if app.state.predictor is None:
+    p = getattr(app.state, "predictor", None)
+    if p is None:
         raise HTTPException(status_code=503, detail={"status": "not_ready"})
 
-    p = app.state.predictor
     return {"status": "ok", "model_version": p.version, "model_type": p.model_type}
 
 
 @app.post("/predict", response_model=PredictResponse)
 def predict(request: PredictRequest):
-    if app.state.predictor is None:
+    p = getattr(app.state, "predictor", None)
+    if p is None:
         raise HTTPException(status_code=503, detail="predictor not ready")
 
     try:
-        result = app.state.predictor.predict(request.window)
+        result = p.predict(request.window)
         return PredictResponse(**result)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
