@@ -23,6 +23,7 @@ serving = ["fastapi", "uvicorn"]
 dl = ["torch"]
 data = ["pyarrow"]
 viz = ["matplotlib"]
+dev = ["mlflow", "httpx"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
