@@ -9,9 +9,11 @@ def test_smoke_imports():
 
     response = PredictResponse(
     risk_score=0.5,
+    bucket="med",
     threshold=0.2,
     is_alert=False,
     model_version="v0-test",
     model_type="gru",
 )
+
     assert 0.0 <= response.risk_score <= 1.0

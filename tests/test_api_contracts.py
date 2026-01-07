@@ -39,12 +39,14 @@ def test_predict_valid_payload_returns_keys() -> None:
     data = response.json()
 
     assert "risk_score" in data
+    assert "bucket" in data
     assert "threshold" in data
     assert "is_alert" in data
     assert "model_version" in data
     assert "model_type" in data
 
     assert 0.0 <= data["risk_score"] <= 1.0
+    assert data["bucket"] in {"low", "med", "high"}
     assert isinstance(data["is_alert"], bool)
 
 
