@@ -24,20 +24,26 @@ from pmrisk.models.train_sequence import (
     train_sequence_model,
 )
 from pmrisk.split.splitter import split_engine_ids
+from pmrisk.tracking.mlflow_utils import (
+    is_mlflow_available,
+    log_artifact,
+    log_metrics,
+    log_params,
+    setup_mlflow,
+    start_run,
+)
 
 
 def _make_json_serializable(obj):
-    """Convert numpy types to JSON-serializable Python types."""
     if isinstance(obj, np.ndarray):
         return obj.tolist()
-    elif isinstance(obj, (np.integer, np.floating)):
+    if isinstance(obj, (np.integer, np.floating)):
         return float(obj)
-    elif isinstance(obj, dict):
+    if isinstance(obj, dict):
         return {k: _make_json_serializable(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [_make_json_serializable(item) for item in obj]
-    else:
-        return obj
+    if isinstance(obj, list):
+        return [_make_json_serializable(v) for v in obj]
+    return obj
 
 
 def main() -> None:
@@ -67,10 +73,21 @@ def main() -> None:
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
     parser.add_argument("--target-recall", type=float, default=0.85, help="Target recall on val")
 
+    parser.add_argument("--mlflow", action="store_true", help="Enable MLflow tracking")
+    parser.add_argument("--mlflow-uri", default="file:mlruns", help="MLflow tracking URI")
+    parser.add_argument("--mlflow-exp", default="pm-risk", help="MLflow experiment name")
+
     args = parser.parse_args()
 
     np.random.seed(42)
     torch.manual_seed(42)
+
+    if args.mlflow:
+        if not is_mlflow_available():
+            print("Warning: MLflow not installed, tracking disabled")
+            args.mlflow = False
+        else:
+            setup_mlflow(tracking_uri=args.mlflow_uri, experiment=args.mlflow_exp)
 
     data_path = Path(args.data)
     if not data_path.exists():
@@ -159,100 +176,143 @@ def main() -> None:
     device = torch.device("cpu")
     model.to(device)
 
-    result = train_sequence_model(
-        model,
-        train_loader,
-        val_loader,
-        device,
-        n_epochs=args.n_epochs,
-        patience=args.patience,
-        lr=args.lr,
-    )
+    run_name = f"seq-{args.model_type}-{args.version}" if args.mlflow else None
+    run_tags = {"model_type": args.model_type} if args.mlflow else None
 
-    best_state_dict = result["best_state_dict"]
-    best_metrics = result["best_metrics"]
-    history = result["history"]
+    with start_run(run_name=run_name, tags=run_tags):
+        if args.mlflow:
+            log_params({
+                "model_type": args.model_type,
+                "version": args.version,
+                "window_l": args.window_l,
+                "n_epochs": args.n_epochs,
+                "batch_size": args.batch_size,
+                "lr": args.lr,
+                "patience": args.patience,
+                "target_recall": args.target_recall,
+                "train_engines_count": len(train_engine_ids),
+                "val_engines_count": len(val_engine_ids),
+                "test_engines_count": len(test_engine_ids),
+            })
 
-    model.load_state_dict(best_state_dict)
-    model.eval()
-
-    logits_val, y_true_val = predict_logits(model, val_loader, device)
-    y_val = y_true_val.view(-1).cpu()
-    s_val = torch.sigmoid(logits_val.view(-1).cpu())
-
-    threshold = select_threshold_for_target_recall(y_val, s_val, args.target_recall)
-    val_at_thr = compute_binary_metrics_at_threshold(y_val, s_val, threshold)
-
-    test_metrics = eval_metrics(model, test_loader, device, threshold=threshold)
-
-    print(
-        f"val: pr_auc={best_metrics['val_pr_auc']:.4f} loss={best_metrics['val_loss']:.4f} "
-        f"thr(recall>={args.target_recall:.2f})={threshold:.4f} "
-        f"p/r/f1={val_at_thr['precision']:.4f}/{val_at_thr['recall']:.4f}/{val_at_thr['f1']:.4f}"
-    )
-    print(
-        f"test: pr_auc={test_metrics['pr_auc']:.4f} loss={test_metrics['loss']:.4f} "
-        f"p/r/f1={test_metrics['precision']:.4f}/{test_metrics['recall']:.4f}/{test_metrics['f1']:.4f}"
-    )
-
-    if "scaler_params" not in pipeline:
-        raise ValueError("Missing scaler_params in pipeline")
-    
-    sp = pipeline["scaler_params"]
-    required_keys = ["feature_columns", "mean", "std"]
-    for key in required_keys:
-        if key not in sp:
-            raise ValueError(f"Missing key '{key}' in scaler_params")
-    
-    if len(sp["feature_columns"]) != len(sp["mean"]) or len(sp["feature_columns"]) != len(sp["std"]):
-        raise ValueError(
-            f"Scaler params length mismatch: "
-            f"feature_columns={len(sp['feature_columns'])}, mean={len(sp['mean'])}, std={len(sp['std'])}"
-        )
-    
-    if len(sp["feature_columns"]) != hparams["n_features"]:
-        raise ValueError(
-            f"Feature count mismatch: scaler has {len(sp['feature_columns'])}, "
-            f"hparams has {hparams['n_features']}"
+        result = train_sequence_model(
+            model,
+            train_loader,
+            val_loader,
+            device,
+            n_epochs=args.n_epochs,
+            patience=args.patience,
+            lr=args.lr,
         )
 
-    scaler_params_json = _make_json_serializable(sp)
+        best_state_dict = result["best_state_dict"]
+        best_metrics = result["best_metrics"]
+        history = result["history"]
 
-    metadata = {
-        "hparams": hparams,
-        "best_metrics": best_metrics,
-        "threshold": float(threshold),
-        "target_recall": float(args.target_recall),
-        "val_metrics_at_threshold": val_at_thr,
-        "test_metrics": test_metrics,
-        "scaler_params": scaler_params_json,
-        "feature_columns": feature_columns,
-        "train_engines_count": len(train_engine_ids),
-        "val_engines_count": len(val_engine_ids),
-        "test_engines_count": len(test_engine_ids),
-        "train_windows_count": len(train_index),
-        "val_windows_count": len(val_index),
-        "test_windows_count": len(test_index),
-        "split_config": {
-            "train_ratio": split_cfg["train_ratio"],
-            "val_ratio": split_cfg["val_ratio"],
-            "test_ratio": split_cfg["test_ratio"],
-            "seed": split_cfg["seed"],
-        },
-        "history": history,
-    }
+        model.load_state_dict(best_state_dict)
+        model.eval()
 
-    root = Path("models") / "production"
-    version_dir = save_sequence_model_production(
-        model_name=args.model_name,
-        version=args.version,
-        state_dict=best_state_dict,
-        metadata=metadata,
-        root=root,
-        set_active=True,
-    )
+        logits_val, y_true_val = predict_logits(model, val_loader, device)
+        y_val = y_true_val.view(-1).cpu()
+        s_val = torch.sigmoid(logits_val.view(-1).cpu())
 
-    print(f"saved: {version_dir} (active={args.version})")
+        threshold = select_threshold_for_target_recall(y_val, s_val, args.target_recall)
+        val_at_thr = compute_binary_metrics_at_threshold(y_val, s_val, threshold)
+
+        test_metrics = eval_metrics(model, test_loader, device, threshold=threshold)
+
+        print(
+            f"val: pr_auc={best_metrics['val_pr_auc']:.4f} loss={best_metrics['val_loss']:.4f} "
+            f"thr(recall>={args.target_recall:.2f})={threshold:.4f} "
+            f"p/r/f1={val_at_thr['precision']:.4f}/{val_at_thr['recall']:.4f}/{val_at_thr['f1']:.4f}"
+        )
+        print(
+            f"test: pr_auc={test_metrics['pr_auc']:.4f} loss={test_metrics['loss']:.4f} "
+            f"p/r/f1={test_metrics['precision']:.4f}/{test_metrics['recall']:.4f}/{test_metrics['f1']:.4f}"
+        )
+
+        if args.mlflow:
+            log_metrics({
+                "val_pr_auc": best_metrics["val_pr_auc"],
+                "val_loss": best_metrics["val_loss"],
+                "threshold": float(threshold),
+                "val_precision": val_at_thr["precision"],
+                "val_recall": val_at_thr["recall"],
+                "val_f1": val_at_thr["f1"],
+                "test_pr_auc": test_metrics["pr_auc"],
+                "test_loss": test_metrics["loss"],
+                "test_precision": test_metrics["precision"],
+                "test_recall": test_metrics["recall"],
+                "test_f1": test_metrics["f1"],
+            })
+
+        if "scaler_params" not in pipeline:
+            raise ValueError("Missing scaler_params in pipeline")
+        
+        sp = pipeline["scaler_params"]
+        required_keys = ["feature_columns", "mean", "std"]
+        for key in required_keys:
+            if key not in sp:
+                raise ValueError(f"Missing key '{key}' in scaler_params")
+        
+        if len(sp["feature_columns"]) != len(sp["mean"]) or len(sp["feature_columns"]) != len(sp["std"]):
+            raise ValueError(
+                f"Scaler params length mismatch: "
+                f"feature_columns={len(sp['feature_columns'])}, mean={len(sp['mean'])}, std={len(sp['std'])}"
+            )
+        
+        if len(sp["feature_columns"]) != hparams["n_features"]:
+            raise ValueError(
+                f"Feature count mismatch: scaler has {len(sp['feature_columns'])}, "
+                f"hparams has {hparams['n_features']}"
+            )
+
+        scaler_params_json = _make_json_serializable(sp)
+
+        metadata = {
+            "hparams": hparams,
+            "best_metrics": best_metrics,
+            "threshold": float(threshold),
+            "target_recall": float(args.target_recall),
+            "val_metrics_at_threshold": val_at_thr,
+            "test_metrics": test_metrics,
+            "scaler_params": scaler_params_json,
+            "feature_columns": feature_columns,
+            "train_engines_count": len(train_engine_ids),
+            "val_engines_count": len(val_engine_ids),
+            "test_engines_count": len(test_engine_ids),
+            "train_windows_count": len(train_index),
+            "val_windows_count": len(val_index),
+            "test_windows_count": len(test_index),
+            "split_config": {
+                "train_ratio": split_cfg["train_ratio"],
+                "val_ratio": split_cfg["val_ratio"],
+                "test_ratio": split_cfg["test_ratio"],
+                "seed": split_cfg["seed"],
+            },
+            "history": history,
+        }
+
+        root = Path("models") / "production"
+        version_dir = save_sequence_model_production(
+            model_name=args.model_name,
+            version=args.version,
+            state_dict=best_state_dict,
+            metadata=metadata,
+            root=root,
+            set_active=True,
+        )
+
+        print(f"saved: {version_dir} (active={args.version})")
+
+        if args.mlflow:
+            meta_path = version_dir / "metadata.json"
+            model_path = version_dir / "model.pt"
+            if meta_path.exists():
+                log_artifact(meta_path, artifact_path="production")
+            if model_path.exists():
+                log_artifact(model_path, artifact_path="production")
+
 
 
 if __name__ == "__main__":
