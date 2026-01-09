@@ -118,7 +118,6 @@ def compute_binary_metrics_at_threshold(
     scores: torch.Tensor,
     threshold: float,
 ) -> dict:
-    """Compute precision, recall, f1 at given threshold."""
     y_true_np = y_true.cpu().numpy()
     scores_np = scores.cpu().numpy()
     y_pred = (scores_np >= threshold).astype(int)

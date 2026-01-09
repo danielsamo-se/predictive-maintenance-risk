@@ -106,6 +106,19 @@ def main() -> None:
     with open(split_config_path, "r", encoding="utf-8") as f:
         split_cfg = yaml.safe_load(f)
 
+    thresholds_path = Path("configs/thresholds.yaml")
+    if not thresholds_path.exists():
+        raise FileNotFoundError(f"Missing thresholds config: {thresholds_path}")
+        
+    with open(thresholds_path, "r", encoding="utf-8") as f:
+        thresh_cfg = yaml.safe_load(f) or {}
+
+    bucket_cutoffs = thresh_cfg.get("bucket_cutoffs", [0.2, 0.5])
+    if not isinstance(bucket_cutoffs, list) or len(bucket_cutoffs) != 2:
+        raise ValueError("configs/thresholds.yaml: bucket_cutoffs must be a list with 2 values")
+
+    bucket_cutoffs = [float(bucket_cutoffs[0]), float(bucket_cutoffs[1])]
+
     all_engine_ids = sorted(df["engine_id"].unique())
     splits = split_engine_ids(
         all_engine_ids,
@@ -273,6 +286,7 @@ def main() -> None:
             "hparams": hparams,
             "best_metrics": best_metrics,
             "threshold": float(threshold),
+            "bucket_cutoffs": bucket_cutoffs,
             "target_recall": float(args.target_recall),
             "val_metrics_at_threshold": val_at_thr,
             "test_metrics": test_metrics,
