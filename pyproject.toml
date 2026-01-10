@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-serving = ["fastapi", "uvicorn"]
+serving = ["fastapi", "uvicorn[standard]"]
 dl = ["torch"]
 data = ["pyarrow"]
 viz = ["matplotlib"]
