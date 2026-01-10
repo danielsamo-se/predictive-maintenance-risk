@@ -20,7 +20,7 @@ from pmrisk.models.train_sequence import (
     eval_metrics,
     filter_index_by_engine_ids,
     predict_logits,
-    select_threshold_for_target_recall,
+    select_threshold_for_policy,
     train_sequence_model,
 )
 from pmrisk.split.splitter import split_engine_ids
@@ -109,14 +109,15 @@ def main() -> None:
     thresholds_path = Path("configs/thresholds.yaml")
     if not thresholds_path.exists():
         raise FileNotFoundError(f"Missing thresholds config: {thresholds_path}")
-        
-    with open(thresholds_path, "r", encoding="utf-8") as f:
-        thresh_cfg = yaml.safe_load(f) or {}
+
+    thresh_cfg = yaml.safe_load(thresholds_path.read_text(encoding="utf-8")) or {}
+
+    cfg_target_recall = float(thresh_cfg.get("target_recall", args.target_recall))
+    cfg_min_precision = float(thresh_cfg.get("min_precision", 0.0))
 
     bucket_cutoffs = thresh_cfg.get("bucket_cutoffs", [0.2, 0.5])
     if not isinstance(bucket_cutoffs, list) or len(bucket_cutoffs) != 2:
         raise ValueError("configs/thresholds.yaml: bucket_cutoffs must be a list with 2 values")
-
     bucket_cutoffs = [float(bucket_cutoffs[0]), float(bucket_cutoffs[1])]
 
     all_engine_ids = sorted(df["engine_id"].unique())
@@ -202,7 +203,8 @@ def main() -> None:
                 "batch_size": args.batch_size,
                 "lr": args.lr,
                 "patience": args.patience,
-                "target_recall": args.target_recall,
+                "target_recall": cfg_target_recall,
+                "min_precision": cfg_min_precision,
                 "train_engines_count": len(train_engine_ids),
                 "val_engines_count": len(val_engine_ids),
                 "test_engines_count": len(test_engine_ids),
@@ -229,14 +231,19 @@ def main() -> None:
         y_val = y_true_val.view(-1).cpu()
         s_val = torch.sigmoid(logits_val.view(-1).cpu())
 
-        threshold = select_threshold_for_target_recall(y_val, s_val, args.target_recall)
+        threshold = select_threshold_for_policy(
+            y_val,
+            s_val,
+            target_recall=cfg_target_recall,
+            min_precision=cfg_min_precision
+        )
         val_at_thr = compute_binary_metrics_at_threshold(y_val, s_val, threshold)
 
         test_metrics = eval_metrics(model, test_loader, device, threshold=threshold)
 
         print(
             f"val: pr_auc={best_metrics['val_pr_auc']:.4f} loss={best_metrics['val_loss']:.4f} "
-            f"thr(recall>={args.target_recall:.2f})={threshold:.4f} "
+            f"thr(policy r>={cfg_target_recall:.2f} & p>={cfg_min_precision:.2f})={threshold:.4f} "
             f"p/r/f1={val_at_thr['precision']:.4f}/{val_at_thr['recall']:.4f}/{val_at_thr['f1']:.4f}"
         )
         print(
@@ -287,7 +294,8 @@ def main() -> None:
             "best_metrics": best_metrics,
             "threshold": float(threshold),
             "bucket_cutoffs": bucket_cutoffs,
-            "target_recall": float(args.target_recall),
+            "target_recall": float(cfg_target_recall),
+            "min_precision": float(cfg_min_precision),
             "val_metrics_at_threshold": val_at_thr,
             "test_metrics": test_metrics,
             "scaler_params": scaler_params_json,

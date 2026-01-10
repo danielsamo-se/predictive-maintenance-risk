@@ -4,6 +4,7 @@ from __future__ import annotations
 import torch
 from torch import nn
 from sklearn.metrics import average_precision_score
+from sklearn.metrics import precision_recall_curve
 
 
 def filter_index_by_engine_ids(index: list[dict], engine_ids: set[int]) -> list[dict]:
@@ -111,6 +112,32 @@ def select_threshold_for_target_recall(
             return float(score)
     
     return 1.0
+
+def select_threshold_for_policy(
+    y_true: torch.Tensor,
+    y_score: torch.Tensor,
+    target_recall: float,
+    min_precision: float,
+) -> float:
+    y = y_true.view(-1).detach().cpu().numpy()
+    s = y_score.view(-1).detach().cpu().numpy()
+
+    precision, recall, thresholds = precision_recall_curve(y, s)
+
+    chosen: float | None = None
+    for i, thr in enumerate(thresholds):
+        prec = float(precision[i])
+        rec = float(recall[i])
+        if rec >= target_recall and prec >= min_precision:
+            chosen = float(thr)  
+
+    if chosen is None:
+        raise ValueError(
+            f"No threshold satisfies target_recall={target_recall} "
+            f"and min_precision={min_precision}. Model too weak for policy."
+        )
+
+    return chosen
 
 
 def compute_binary_metrics_at_threshold(
