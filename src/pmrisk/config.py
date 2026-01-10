@@ -2,20 +2,39 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
 import yaml
 from pydantic import BaseModel
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]  
-_CONFIG_PATH = _PROJECT_ROOT / "configs" / "base.yaml"
+
+def _default_config_path() -> Path:
+   
+    env_path = os.getenv("PMRISK_CONFIG_PATH")
+    if env_path:
+        return Path(env_path)
+
+    env_root = os.getenv("PMRISK_PROJECT_ROOT")
+    if env_root:
+        return Path(env_root) / "configs" / "base.yaml"
+
+    return Path("configs") / "base.yaml"
+
+
+_CONFIG_PATH = _default_config_path()
 
 
 def _load_yaml_config(path: Path = _CONFIG_PATH) -> dict[str, Any]:
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Config not found: {path} "
+        )
+
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     if not isinstance(data, dict):
-        raise ValueError(f"Config at {path} must be a YAML mapping.")
+        raise ValueError(f"Config at {path} must be YAML ")
     return data
 
 
