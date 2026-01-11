@@ -1,0 +1,4 @@
+model: isolation_forest
+contamination: 0.02
+random_seed: 42
+output_scores_path: reports/anomaly_scores.parquet
