@@ -24,6 +24,7 @@ dl = ["torch"]
 data = ["pyarrow"]
 viz = ["matplotlib"]
 dev = ["mlflow", "httpx"]
+cloud = ["boto3", "python-dotenv"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
