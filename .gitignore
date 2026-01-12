@@ -16,3 +16,5 @@ models/production/**
 
 mlruns/
 .mlflow/
+
+.env
