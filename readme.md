@@ -73,7 +73,7 @@ Data (NASA C-MAPSS) → Labeling → Engine-Split (70/15/15) → Training → Th
 
 **MLOps**
 - MLflow experiment tracking
-- S3/MinIO artifact storage
+- AWS S3 artifact storage
 - Docker and docker-compose deployment
 - Inference benchmark script
 
@@ -175,7 +175,7 @@ NASA C-MAPSS FD001: Turbofan engine degradation simulation with 100 engines, ~20
 - ML: PyTorch, LightGBM, scikit-learn
 - Data: Pandas, NumPy, PyArrow
 - API: FastAPI, Pydantic, Uvicorn
-- MLOps: MLflow, Docker, MinIO
+- MLOps: MLflow, Docker, AWS S3
 - Testing: pytest
 
 ---
