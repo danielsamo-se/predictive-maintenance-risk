@@ -18,16 +18,22 @@ This system predicts whether a turbine will fail within the next 30 operating cy
 
 ## Results
 
-| Metric | Validation | Test |
-|--------|------------|------|
-| PR-AUC | 0.974 | 0.984 |
-| Precision | 0.932 | 0.966 |
-| Recall | 0.851 | 0.882 |
-| F1 | 0.890 | 0.922 |
+| Model | PR-AUC (Val) | PR-AUC (Test) | Precision | Recall | F1 |
+|-------|-------------|---------------|-----------|--------|----|
+| Logistic Regression | 0.873 | 0.906 | 0.923 | 0.911 | 0.917 |
+| **LightGBM** | **0.974** | **0.984** | **0.966** | **0.882** | **0.922** |
+| 1D-CNN (PyTorch) | 0.752 | 0.859 | 0.566 | 0.987 | 0.719 |
+| GRU (PyTorch) | 0.971 | 0.974 | 0.942 | 0.793 | 0.861 |
 
-Model: LightGBM (selected over Logistic Regression by PR-AUC on validation)
+Selected model: LightGBM (highest PR-AUC on validation)
 
-Threshold: 0.8974 (selected to satisfy recall ≥ 85% and precision ≥ 30%)
+Threshold: 0.8974 (policy: recall ≥ 85%, precision ≥ 30%)
+
+LightGBM achieves train PR-AUC of 1.0 which is expected for gradient boosting at these hyperparameters. The val/test gap is small (0.026) and the expanding-window backtest confirms stable generalisation across folds.
+
+IsolationForest serves as an unsupervised baseline and captures ~20% of true failures in the top 5% of anomaly scores (lift ≈ 4×), confirming that degradation patterns are detectable without labels.
+
+Full comparison: [reports/model_comparison.md](reports/model_comparison.md) · Plots: [notebooks/model_evaluation.ipynb](notebooks/model_evaluation.ipynb)
 
 ---
 
@@ -61,9 +67,11 @@ Data (NASA C-MAPSS) → Labeling → Engine-Split (70/15/15) → Training → Th
 - PR-AUC as primary metric (handles class imbalance)
 - Configurable threshold policy (target recall + minimum precision)
 - Calibration analysis and backtesting
+- Model comparison across all candidates ([report](reports/model_comparison.md))
 
 **Analysis & Reports**
 - EDA notebook with sensor correlation, degradation plots, class imbalance analysis
+- Model evaluation notebook with PR curves, confusion matrices, calibration, feature importance
 - Evaluation reports for baseline and anomaly models
 
 **Serving**
@@ -160,7 +168,7 @@ All parameters configurable via YAML files:
 
 **Threshold Policy:** Threshold satisfies recall ≥ 85% AND precision ≥ 30%. Values are configurable for different operational requirements.
 
-**Model Selection:** Both Logistic Regression and LightGBM are trained. The model with higher PR-AUC on validation is selected automatically.
+**Model Selection:** All five models are trained and compared on the same split. The model with highest PR-AUC on validation is selected automatically.
 
 ---
 
