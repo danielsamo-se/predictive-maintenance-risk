@@ -5,6 +5,7 @@ services:
       - "8000:8000"
     environment:
       - PMRISK_MODELS_ROOT=/app/models/production
+      - PMRISK_MODEL_TYPE=tabular
     volumes:
       - ./models/production:/app/models/production:ro
     restart: unless-stopped

@@ -8,15 +8,21 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 
-from pmrisk.serving.predictor import SequencePredictor
 from pmrisk.serving.schemas import PredictRequest, PredictResponse
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     models_root = os.getenv("PMRISK_MODELS_ROOT", "models/production")
+    model_type = os.getenv("PMRISK_MODEL_TYPE", "tabular")
+
     try:
-        app.state.predictor = SequencePredictor(root=Path(models_root))
+        if model_type == "tabular":
+            from pmrisk.serving.tabular_predictor import TabularPredictor
+            app.state.predictor = TabularPredictor(root=Path(models_root))
+        else:
+            from pmrisk.serving.predictor import SequencePredictor
+            app.state.predictor = SequencePredictor(root=Path(models_root))
     except Exception as e:
         print(f"Warning: predictor not loaded: {e}")
         app.state.predictor = None
